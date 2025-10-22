@@ -27,6 +27,7 @@ import (
 	"github.com/daytonaio/runner/pkg/api/middlewares"
 	"github.com/daytonaio/runner/pkg/common"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -85,6 +86,7 @@ func (a *ApiServer) Start() error {
 
 	a.router.Use(middlewares.LoggingMiddleware())
 	a.router.Use(common_errors.NewErrorMiddleware(common.HandlePossibleDockerError))
+	a.router.Use(otelgin.Middleware("daytona-runner"))
 
 	public := a.router.Group("/")
 	public.GET("", controllers.HealthCheck)

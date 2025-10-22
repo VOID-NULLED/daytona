@@ -23,8 +23,10 @@ import (
 	"github.com/daytonaio/runner/pkg/runner"
 	"github.com/daytonaio/runner/pkg/services"
 	"github.com/daytonaio/runner/pkg/sshgateway"
+	"github.com/daytonaio/runner/pkg/telemetry"
 	"github.com/docker/docker/client"
 	"github.com/joho/godotenv"
+	"go.opentelemetry.io/otel"
 
 	"github.com/rs/zerolog"
 	zlog "github.com/rs/zerolog/log"
@@ -46,7 +48,15 @@ func main() {
 		EnableTLS:   cfg.EnableTLS,
 	})
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	// Init tracing
+	shutdown, err := telemetry.InitTracing(cfg)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	defer shutdown()
+
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation(), client.WithTraceProvider(otel.GetTracerProvider()))
 	if err != nil {
 		log.Errorf("Error creating Docker client: %v", err)
 		return
