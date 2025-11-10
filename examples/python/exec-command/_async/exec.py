@@ -1,36 +1,21 @@
 import asyncio
 
-from daytona import AsyncDaytona, CreateSandboxFromImageParams, Resources
+from daytona import AsyncDaytona
 
 
 async def main():
-    async with AsyncDaytona() as daytona:
-        params = CreateSandboxFromImageParams(
-            image="python:3.9.23-slim",
-            language="python",
-            resources=Resources(
-                cpu=1,
-                memory=1,
-                disk=3,
-            ),
-        )
-        sandbox = await daytona.create(params, timeout=150, on_snapshot_create_logs=print)
+    try:
+        sandbox = None
+        async with AsyncDaytona() as daytona:
+            sandbox = await daytona.create()
 
-        # Run the code securely inside the sandbox
-        response = await sandbox.process.code_run('print("Hello World!")')
-        if response.exit_code != 0:
-            print(f"Error: {response.exit_code} {response.result}")
-        else:
+        if sandbox:
+            response = await sandbox.process.exec('echo "Hello World from exec!"', timeout=10)
             print(response.result)
-
-        # Execute an os command in the sandbox
-        response = await sandbox.process.exec('echo "Hello World from exec!"', timeout=10)
-        if response.exit_code != 0:
-            print(f"Error: {response.exit_code} {response.result}")
-        else:
-            print(response.result)
-
-        await daytona.delete(sandbox)
+    finally:
+        if sandbox:
+            await sandbox.delete()
+            await sandbox.close()
 
 
 if __name__ == "__main__":
