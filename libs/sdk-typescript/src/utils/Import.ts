@@ -7,8 +7,7 @@ import importSync from 'import-sync'
 import { DaytonaError } from '../errors/DaytonaError'
 import { RUNTIME } from './Runtime'
 
-// All dynamic imports should be added here so that Webpack can bundle them.
-const loaderMap = {
+const importMap = {
   stream: () => import('stream'),
   tar: () => import('tar'),
   ObjectStorage: () => import('../ObjectStorage.js'),
@@ -20,13 +19,10 @@ const loaderMap = {
   dotenv: () => import('dotenv'),
 }
 
-const importSyncMap = {
-  'fast-glob': () => importSync('fast-glob'),
-  '@iarna/toml': () => importSync('@iarna/toml'),
-  'expand-tilde': () => importSync('expand-tilde'),
-  fs: () => importSync('fs'),
-  dotenv: () => importSync('dotenv'),
-}
+const importSyncMap = Object.fromEntries(Object.keys(importMap).map((key) => [key, () => importSync(key)])) as Record<
+  keyof typeof importMap,
+  () => any
+>
 
 const validateMap: Record<string, (mod: any) => boolean> = {
   'fast-glob': (mod: any) => typeof mod === 'function' && typeof mod?.sync === 'function',
@@ -39,13 +35,13 @@ const validateMap: Record<string, (mod: any) => boolean> = {
   dotenv: (mod: any) => typeof mod.config === 'function',
 }
 
-type ModuleMap = typeof loaderMap
+type ImportMap = typeof importMap
 
-export async function dynamicImport<K extends keyof ModuleMap>(
+export async function dynamicImport<K extends keyof ImportMap>(
   name: K,
   errorPrefix?: string,
-): Promise<Awaited<ReturnType<ModuleMap[K]>>> {
-  const loader = loaderMap[name]
+): Promise<Awaited<ReturnType<ImportMap[K]>>> {
+  const loader = importMap[name]
   if (!loader) {
     throw new DaytonaError(`${errorPrefix || ''} Unknown module "${name}"`)
   }
