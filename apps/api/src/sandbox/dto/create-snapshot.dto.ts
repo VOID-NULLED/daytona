@@ -85,4 +85,13 @@ export class CreateSnapshotDto {
   @IsOptional()
   @IsObject()
   buildInfo?: CreateBuildInfoDto
+
+  @ApiPropertyOptional({
+    description:
+      'ID of the region where the snapshot will be available. Defaults to organization default region if not specified.',
+    type: String,
+  })
+  @IsOptional()
+  @IsString()
+  regionId?: string
 }

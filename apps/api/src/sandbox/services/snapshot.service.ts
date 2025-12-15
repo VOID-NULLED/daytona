@@ -12,8 +12,9 @@ import {
   Logger,
 } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { Repository, Not, In, Raw, ILike, FindOptionsWhere } from 'typeorm'
+import { Repository, Not, In, Raw, ILike, FindOptionsWhere, Brackets } from 'typeorm'
 import { Snapshot } from '../entities/snapshot.entity'
+import { SnapshotRegion } from '../entities/snapshot-region.entity'
 import { SnapshotState } from '../enums/snapshot-state.enum'
 import { CreateSnapshotDto } from '../dto/create-snapshot.dto'
 import { BuildInfo } from '../entities/build-info.entity'
@@ -41,6 +42,7 @@ import { RunnerState } from '../enums/runner-state.enum'
 import { OnAsyncEvent } from '../../common/decorators/on-async-event.decorator'
 import { RunnerEvents } from '../constants/runner-events'
 import { RunnerDeletedEvent } from '../events/runner-deleted.event'
+import { v4 as uuidv4 } from 'uuid'
 
 const IMAGE_NAME_REGEX = /^[a-zA-Z0-9_.\-:]+(\/[a-zA-Z0-9_.\-:]+)*(@sha256:[a-f0-9]{64})?$/
 @Injectable()
@@ -56,6 +58,8 @@ export class SnapshotService {
     private readonly buildInfoRepository: Repository<BuildInfo>,
     @InjectRepository(SnapshotRunner)
     private readonly snapshotRunnerRepository: Repository<SnapshotRunner>,
+    @InjectRepository(SnapshotRegion)
+    private readonly snapshotRegionRepository: Repository<SnapshotRegion>,
     @InjectRepository(Region)
     private readonly regionRepository: Repository<Region>,
     private readonly organizationService: OrganizationService,
@@ -149,6 +153,8 @@ export class SnapshotService {
 
       this.organizationService.assertOrganizationIsNotSuspended(organization)
 
+      const regionId = await this.getValidatedOrDefaultRegionId(organization, createSnapshotDto.regionId)
+
       const newSnapshotCount = 1
 
       const { pendingSnapshotCountIncremented } = await this.validateOrganizationQuotas(
@@ -201,7 +207,10 @@ export class SnapshotService {
       }
 
       try {
+        const snapshotId = uuidv4()
+
         const snapshot = this.snapshotRepository.create({
+          id: snapshotId,
           organizationId: organization.id,
           ...createSnapshotDto,
           entrypoint: this.processEntrypoint(entrypoint),
@@ -209,6 +218,7 @@ export class SnapshotService {
           state,
           ref,
           general,
+          snapshotRegions: [{ snapshotId, regionId }],
         })
 
         return await this.snapshotRepository.save(snapshot)
@@ -243,6 +253,8 @@ export class SnapshotService {
 
       this.organizationService.assertOrganizationIsNotSuspended(organization)
 
+      const regionId = await this.getValidatedOrDefaultRegionId(organization, createSnapshotDto.regionId)
+
       const newSnapshotCount = 1
 
       const { pendingSnapshotCountIncremented } = await this.validateOrganizationQuotas(
@@ -259,13 +271,17 @@ export class SnapshotService {
 
       entrypoint = this.getEntrypointFromDockerfile(createSnapshotDto.buildInfo.dockerfileContent)
 
+      const snapshotId = uuidv4()
+
       const snapshot = this.snapshotRepository.create({
+        id: snapshotId,
         organizationId: organization.id,
         ...createSnapshotDto,
         entrypoint: this.processEntrypoint(entrypoint),
         mem: createSnapshotDto.memory, // Map memory to mem
         state: SnapshotState.PENDING,
         general,
+        snapshotRegions: [{ snapshotId, regionId }],
       })
 
       const buildSnapshotRef = generateBuildSnapshotRef(
@@ -367,6 +383,7 @@ export class SnapshotService {
 
     const [items, total] = await this.snapshotRepository.findAndCount({
       where,
+      relations: ['snapshotRegions'],
       order: {
         general: 'ASC', // Sort general snapshots last
         [sortField]: {
@@ -649,23 +666,53 @@ export class SnapshotService {
   }
 
   /**
-   * Get all regions for snapshot propagation for an organization.
+   * Validates and returns a region ID for snapshot availability.
    *
-   * Regions are considered for snapshot propagation if:
-   * - the region is associated with the organization
-   * - the region is not associated with an organization, but the organization has quotas allocated for the region
+   * A region can be used for a snapshot if either:
+   * - It is directly associated with the organization, or
+   * - It is not associated with any organization, but the organization has quotas allocated for the region
    *
-   * @param organizationId - The ID of the organization.
-   * @returns The regions for snapshot propagation.
+   * @param organization - The organization which is creating the snapshot.
+   * @param regionId - If omitted, the organization's default region is used.
+   * @returns The validated region ID, or the organization's default region if no region ID was provided
+   * @throws {NotFoundException} If the requested region is not available to the organization
    */
-  async getRegionsForSnapshotPropagation(organizationId: string): Promise<Region[]> {
-    return await this.regionRepository
+  private async getValidatedOrDefaultRegionId(organization: Organization, regionId?: string): Promise<string> {
+    if (!regionId) {
+      return organization.defaultRegionId
+    }
+
+    const isAvailable = await this.regionRepository
       .createQueryBuilder('region')
-      .where('region."organizationId" = :organizationId', { organizationId })
-      .orWhere(
-        'region."organizationId" IS NULL AND EXISTS (SELECT 1 FROM region_quota rq WHERE rq."regionId" = region."id" AND rq."organizationId" = :organizationId)',
-        { organizationId },
+      .where('region.id = :regionId', { regionId })
+      .andWhere(
+        new Brackets((qb) => {
+          qb.where('region."organizationId" = :organizationId', {
+            organizationId: organization.id,
+          }).orWhere(
+            'region."organizationId" IS NULL AND EXISTS (SELECT 1 FROM region_quota rq WHERE rq."regionId" = region.id AND rq."organizationId" = :organizationId)',
+            { organizationId: organization.id },
+          )
+        }),
       )
+      .getExists()
+
+    if (!isAvailable) {
+      throw new NotFoundException('Region not found')
+    }
+
+    return regionId
+  }
+
+  /**
+   * @param snapshotId
+   * @returns The regions where the snapshot is configured to be propagated to.
+   */
+  async getSnapshotRegions(snapshotId: string): Promise<Region[]> {
+    return await this.regionRepository
+      .createQueryBuilder('r')
+      .innerJoin('snapshot_region', 'sr', 'sr."regionId" = r.id')
+      .where('sr."snapshotId" = :snapshotId', { snapshotId })
       .getMany()
   }
 
