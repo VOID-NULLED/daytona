@@ -1998,6 +1998,45 @@
         }
       }
     },
+    "/process/session/{sessionId}/command/{commandId}/input": {
+      "post": {
+        "description": "Write input data to a running command in a session for interactive execution",
+        "consumes": ["application/json"],
+        "tags": ["process"],
+        "summary": "Write input to command",
+        "operationId": "WriteInput",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Session ID",
+            "name": "sessionId",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Command ID",
+            "name": "commandId",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Input write request",
+            "name": "request",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SessionWriteInputRequest"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
     "/process/session/{sessionId}/command/{commandId}/logs": {
       "get": {
         "description": "Get logs for a specific command within a session. Supports both HTTP and WebSocket streaming.",
@@ -3131,6 +3170,15 @@
           "type": "string"
         },
         "stdout": {
+          "type": "string"
+        }
+      }
+    },
+    "SessionWriteInputRequest": {
+      "type": "object",
+      "required": ["input"],
+      "properties": {
+        "input": {
           "type": "string"
         }
       }

@@ -30,6 +30,9 @@ func (s *SessionService) Execute(sessionId, cmd string, async, isCombinedOutput 
 		return nil, common_errors.NewNotFoundError(errors.New("session not found"))
 	}
 
+	// Strip trailing whitespace and newlines from command to avoid issues
+	cmd = strings.TrimRight(cmd, " \t\n\r")
+
 	cmdId := util.Pointer(uuid.NewString())
 
 	command := &Command{
@@ -53,13 +56,13 @@ func (s *SessionService) Execute(sessionId, cmd string, async, isCombinedOutput 
 	defer logFile.Close()
 
 	cmdToExec := fmt.Sprintf(cmdWrapperFormat+"\n",
-		logFilePath,    // %q  -> log
-		logDir,         // %q  -> dir
-		*cmdId, *cmdId, // %s  %s -> fifo names
-		toOctalEscapes(STDOUT_PREFIX), // %s  -> stdout prefix
-		toOctalEscapes(STDERR_PREFIX), // %s  -> stderr prefix
-		cmd,                           // %s  -> verbatim script body
-		exitCodeFilePath,              // %q
+		logFilePath, // %q  -> log
+		logDir,      // %q  -> dir
+		command.InputFilePath(session.Dir(s.configDir)), // %q  -> input
+		toOctalEscapes(STDOUT_PREFIX),                   // %s  -> stdout prefix
+		toOctalEscapes(STDERR_PREFIX),                   // %s  -> stderr prefix
+		cmd,                                             // %s  -> verbatim script body
+		exitCodeFilePath,                                // %q
 	)
 
 	_, err = session.stdinWriter.Write([]byte(cmdToExec))
@@ -130,20 +133,27 @@ var cmdWrapperFormat string = `
 {
 	log=%q
 	dir=%q
+	input=%q
 
 	# per-command FIFOs
-	sp="$dir/stdout.pipe.%s.$$"; ep="$dir/stderr.pipe.%s.$$"
-	rm -f "$sp" "$ep" && mkfifo "$sp" "$ep" || exit 1
+	sp="$dir/stdout.pipe"
+	ep="$dir/stderr.pipe"
+	ip=$input
+	
+	rm -f "$sp" "$ep" "$ip" && mkfifo "$sp" "$ep" "$ip" || exit 1
 
-	cleanup() { rm -f "$sp" "$ep"; }
+	cleanup() { rm -f "$sp" "$ep" "$ip"; }
 	trap 'cleanup' EXIT HUP INT TERM
 
 	# prefix each stream and append to shared log
 	( while IFS= read -r line || [ -n "$line" ]; do printf '%s%%s\n' "$line"; done < "$sp" ) >> "$log" & r1=$!
 	( while IFS= read -r line || [ -n "$line" ]; do printf '%s%%s\n' "$line"; done < "$ep" ) >> "$log" & r2=$!
 
+	# Keep input FIFO open to prevent blocking when command opens stdin
+	sleep infinity > "$ip" &
+
 	# Run your command
-	{ %s; } > "$sp" 2> "$ep"
+	{ %s; } < "$ip" > "$sp" 2> "$ep"
 	echo "$?" >> %s
 
 	# drain labelers (cleanup via trap)

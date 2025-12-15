@@ -15,6 +15,10 @@ type SessionExecuteRequest struct {
 	Async    bool   `json:"async" validate:"optional"`
 } // @name SessionExecuteRequest
 
+type SessionWriteInputRequest struct {
+	Input string `json:"input" validate:"required"`
+} // @name SessionWriteInputRequest
+
 type SessionExecuteResponse struct {
 	CommandId *string `json:"cmdId" validate:"optional"`
 	Output    *string `json:"output" validate:"optional"`

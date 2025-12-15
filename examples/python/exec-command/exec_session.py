@@ -1,3 +1,5 @@
+from time import sleep
+
 from daytona import Daytona, SessionExecuteRequest
 
 
@@ -12,36 +14,37 @@ def main():
     session = sandbox.process.get_session(exec_session_id)
     print(session)
 
-    # Execute a first command in the session
     exec_command1 = sandbox.process.execute_session_command(
-        exec_session_id, SessionExecuteRequest(command="export FOO=BAR")
+        exec_session_id, SessionExecuteRequest(command='printf "Test command printout"', run_async=False)
     )
-    if exec_command1.exit_code != 0:
-        print(f"Error: {exec_command1.exit_code} {exec_command1.stderr}")
+    print("Printing first command output")
+    print(f"[STDOUT]: {exec_command1.stdout}")
+    print(f"[STDERR]: {exec_command1.stderr}")
 
-    # Get the session details again to see the command has been executed
-    session = sandbox.process.get_session(exec_session_id)
-    print(session)
-
-    # Get the command details
-    session_command = sandbox.process.get_session_command(exec_session_id, exec_command1.cmd_id)
-    print(session_command)
-
+    print("Executing second command")
     # Execute a second command in the session and see that the environment variable is set
-    exec_command2 = sandbox.process.execute_session_command(exec_session_id, SessionExecuteRequest(command="echo $FOO"))
-    if exec_command2.exit_code != 0:
-        print(f"Error: {exec_command2.exit_code} {exec_command2.stderr}")
-    else:
-        print(exec_command2.stdout)
+    exec_command2 = sandbox.process.execute_session_command(
+        exec_session_id,
+        SessionExecuteRequest(
+            command='printf "Enter your name: \\n" && read name && printf "Hello, %s\\n" "$name"', run_async=True
+        ),
+    )
+    sleep(2)
 
     print("Now getting logs for the second command")
     logs = sandbox.process.get_session_command_logs(exec_session_id, exec_command2.cmd_id)
     print(f"[STDOUT]: {logs.stdout}")
     print(f"[STDERR]: {logs.stderr}")
 
-    # You can also list all active sessions
-    sessions = sandbox.process.list_sessions()
-    print(sessions)
+    # Write input to the command
+    sandbox.process.write_session_command_input(exec_session_id, exec_command2.cmd_id, "Alice\n")
+    print("Input written to the command")
+    sleep(2)
+
+    print("Now getting logs for the second command")
+    logs = sandbox.process.get_session_command_logs(exec_session_id, exec_command2.cmd_id)
+    print(f"[STDOUT]: {logs.stdout}")
+    print(f"[STDERR]: {logs.stderr}")
 
     # And of course you can delete the session at any time
     sandbox.process.delete_session(exec_session_id)

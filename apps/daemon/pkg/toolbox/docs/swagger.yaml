@@ -740,6 +740,13 @@ definitions:
       stdout:
         type: string
     type: object
+  SessionWriteInputRequest:
+    properties:
+      input:
+        type: string
+    required:
+      - input
+    type: object
   Status:
     enum:
       - Unmodified
@@ -2361,6 +2368,36 @@ paths:
           schema:
             $ref: '#/definitions/CommandDTO'
       summary: Get session command details
+      tags:
+        - process
+  /process/session/{sessionId}/command/{commandId}/input:
+    post:
+      consumes:
+        - application/json
+      description: Write input data to a running command in a session for interactive
+        execution
+      operationId: WriteInput
+      parameters:
+        - description: Session ID
+          in: path
+          name: sessionId
+          required: true
+          type: string
+        - description: Command ID
+          in: path
+          name: commandId
+          required: true
+          type: string
+        - description: Input write request
+          in: body
+          name: request
+          required: true
+          schema:
+            $ref: '#/definitions/SessionWriteInputRequest'
+      responses:
+        '204':
+          description: No Content
+      summary: Write input to command
       tags:
         - process
   /process/session/{sessionId}/command/{commandId}/logs:

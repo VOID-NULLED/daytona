@@ -33,6 +33,10 @@ func (c *Command) LogFilePath(sessionDir string) (string, string) {
 	return filepath.Join(sessionDir, c.Id, "output.log"), filepath.Join(sessionDir, c.Id, "exit_code")
 }
 
+func (c *Command) InputFilePath(sessionDir string) string {
+	return filepath.Join(sessionDir, c.Id, "stdin.pipe")
+}
+
 type Session struct {
 	SessionId string     `json:"sessionId" validate:"required"`
 	Commands  []*Command `json:"commands" validate:"required"`
